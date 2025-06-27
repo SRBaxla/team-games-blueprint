@@ -3,21 +3,15 @@ import { Button } from "./ui/button";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  connectSocket,
-  disconnectSocket,
-  getSocket,
-  createRoom,
-  joinRoom,
-} from "@/lib/socket";
+import { useLobby } from "@/context/LobbyContext";
+import { connectSocket, disconnectSocket, emitCreateRoom, emitJoinRoom } from "@/lib/socket";
 import { RoomCodeModal } from "./RoomCodeModal";
 
 export default function GameWindow() {
-  const [name, setName] = useState("");
+  const { name, setName, setRoomCode, setIsHost } = useLobby();
   const [connected, setConnected] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const navigate = useNavigate();
-  const [roomCode, setRoomCode] = useState<string>("");
 
   useEffect(() => {
     const socket = connectSocket();
@@ -30,12 +24,7 @@ export default function GameWindow() {
       setConnected(false);
     });
 
-    socket.on("room_created", ({ room }) => {
-      toast.success(`Room created: ${room}`);
-      setRoomCode(room);
-      navigate("/lobby");
-    });
-
+    // Remove room_created listener since we handle it via promise now
     socket.on("player_joined", ({ player, players }) => {
       toast(`${player} joined!`);
     });
@@ -45,17 +34,32 @@ export default function GameWindow() {
     });
 
     return () => {
-      disconnectSocket();
+      // disconnectSocket();
     };
   }, []);
 
-  const handleCreateRoom = () => {
+  const handleCreateRoom = async () => {
+    console.log("[DEBUG] Creating room with name:", name);
     if (!name.trim()) {
       toast.error("Please enter your name before creating a room.");
       return;
     }
 
-    createRoom(name);
+    try {
+      const res = await emitCreateRoom(name);
+      console.log("[DEBUG] Room create response:", res);
+      if (res?.error) {
+        toast.error(res.error);
+      } else {
+        toast.success(`Room created: ${res.room}`);
+        setRoomCode(res.room!);
+        setIsHost(true);
+        navigate(`/lobby/${res.room}`);
+      }
+    } catch (error) {
+      toast.error("Failed to create room");
+      console.error("Create room error:", error);
+    }
   };
 
   const handleJoinRoom = () => {
@@ -63,17 +67,32 @@ export default function GameWindow() {
       toast.error("Please enter your name before joining a room.");
       return;
     }
-
     setModalOpen(true);
   };
 
-  const handleJoin = (roomCode: string) => {
-    if (!roomCode.trim()) {
+  const handleJoin = async (roomCode: string) => {
+    const cleanCode = roomCode.trim().toUpperCase();
+
+    if (!cleanCode) {
       toast.error("Room code is required.");
       return;
     }
 
-    joinRoom(name, roomCode.trim().toUpperCase());
+    try {
+      const response = await emitJoinRoom(name, cleanCode);
+      if (response?.error) {
+        toast.error(response.error);
+      } else {
+        setRoomCode(cleanCode);
+        setIsHost(false);
+        setModalOpen(false);
+        toast.success(`Joined room: ${cleanCode}`);
+        navigate(`/lobby/${cleanCode}`);
+      }
+    } catch (error) {
+      toast.error("Failed to join room");
+      console.error("Join room error:", error);
+    }
   };
 
   return (
