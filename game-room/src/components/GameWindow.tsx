@@ -1,114 +1,149 @@
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
-import { useState, useEffect, useRef } from "react";
-import { io, Socket } from "socket.io-client";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  connectSocket,
+  disconnectSocket,
+  getSocket,
+  createRoom,
+  joinRoom,
+} from "@/lib/socket";
+import { RoomCodeModal } from "./RoomCodeModal";
 
 export default function GameWindow() {
   const [name, setName] = useState("");
-  const [roomCode, setRoomCode] = useState("");
   const [connected, setConnected] = useState(false);
-  type CreateRoomResponse = { error?: string; roomCode?: string };
-  type JoinRoomResponse = { error?: string; success?: boolean };
-
-  const socketRef = useRef<Socket | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const navigate = useNavigate();
+  const [roomCode, setRoomCode] = useState<string>("");
 
   useEffect(() => {
-    socketRef.current = io("http://localhost:3000");
-
-    const socket = socketRef.current;
+    const socket = connectSocket();
 
     socket.on("connect", () => {
       setConnected(true);
-      console.log("Connected:", socket.id);
     });
 
     socket.on("disconnect", () => {
       setConnected(false);
-      console.log("Disconnected");
     });
 
-    socket.on("room-created", ({ roomId }) => {
-      toast.success(`Room created: ${roomId}`);
+    socket.on("room_created", ({ room }) => {
+      toast.success(`Room created: ${room}`);
+      setRoomCode(room);
+      navigate("/lobby");
     });
 
-    socket.on("room-joined", ({ roomId }) => {
-      toast.success(`Joined room: ${roomId}`);
+    socket.on("player_joined", ({ player, players }) => {
+      toast(`${player} joined!`);
     });
 
-    socket.on("userJoined", ({ name }) => {
-      toast(`${name} joined the room!`);
+    socket.on("error", ({ message }) => {
+      toast.error(message);
     });
 
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      disconnectSocket();
     };
   }, []);
 
   const handleCreateRoom = () => {
     if (!name.trim()) {
-      toast.error("Enter a name to create a room.");
+      toast.error("Please enter your name before creating a room.");
       return;
     }
 
-    socketRef.current?.emit("createRoom", name, (response: CreateRoomResponse) => {
-      if (response?.error) {
-        toast.error(response.error);
-      } else {
-        const { roomCode } = response;
-        console.log("Room created:", roomCode);
-      }
-    });
+    createRoom(name);
   };
 
   const handleJoinRoom = () => {
-    if (!name.trim() || !roomCode.trim()) {
-      toast.error("Enter name and room code to join.");
+    if (!name.trim()) {
+      toast.error("Please enter your name before joining a room.");
       return;
     }
 
-    socketRef.current?.emit(
-      "joinRoom",
-      {
-        name,
-        roomCode: roomCode.trim().toUpperCase(),
-      },
-      (response: JoinRoomResponse) => {
-        if (response?.error) {
-          toast.error(response.error);
-        } else {
-          console.log("Joined room successfully");
-        }
-      }
-    );
+    setModalOpen(true);
+  };
+
+  const handleJoin = (roomCode: string) => {
+    if (!roomCode.trim()) {
+      toast.error("Room code is required.");
+      return;
+    }
+
+    joinRoom(name, roomCode.trim().toUpperCase());
   };
 
   return (
-    <div className="flex flex-col items-center justify-center p-6 bg-white/10 rounded-2xl backdrop-blur-md shadow-lg text-white w-full max-w-md mx-auto">
-      <h2 className="text-2xl font-bold mb-4 text-center">🎮 Join the Game</h2>
+    <div
+      className="min-h-screen bg-[#122118] text-white"
+      style={{ fontFamily: '"Be Vietnam Pro", "Noto Sans", sans-serif' }}
+    >
+      <div className="flex flex-col min-h-screen">
+        {/* Header */}
+        <header className="flex items-center justify-between border-b border-[#264532] px-10 py-4">
+          <div className="flex items-center gap-4">
+            <svg
+              className="w-6 h-6 text-white"
+              viewBox="0 0 48 48"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                fill="currentColor"
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M24 0.757355L47.2426 24L24 47.2426L0.757355 24L24 0.757355ZM21 35.7574V12.2426L9.24264 24L21 35.7574Z"
+              />
+            </svg>
+            <h1 className="text-lg font-bold tracking-tight">
+              Rock Paper Scissors
+            </h1>
+          </div>
 
-      <Input
-        placeholder="Your Name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="mb-3"
-      />
+          <button className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#264532] text-sm font-bold">
+            {connected ? "Connected" : "Offline"}
+          </button>
+        </header>
 
-      <Button onClick={handleCreateRoom} className="w-full mb-4">
-        Create Room
-      </Button>
+        {/* Room Code Modal */}
+        <RoomCodeModal
+          open={modalOpen}
+          onOpenChange={setModalOpen}
+          onJoin={handleJoin}
+        />
 
-      <Input
-        placeholder="Room Code"
-        value={roomCode}
-        onChange={(e) => setRoomCode(e.target.value)}
-        className="mb-3"
-      />
+        {/* Main */}
+        <main className="flex flex-1 items-center justify-center px-4 py-6">
+          <div className="w-full max-w-md bg-white/10 text-white rounded-2xl p-6 backdrop-blur-md shadow-xl">
+            <h2 className="text-2xl font-bold mb-4 text-center">
+              🎮 Join the Game
+            </h2>
 
-      <Button variant="secondary" onClick={handleJoinRoom} className="w-full">
-        Join Room
-      </Button>
+            <Input
+              placeholder="Your Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="mb-4"
+            />
+
+            <div className="flex gap-4">
+              <Button onClick={handleCreateRoom} className="w-1/2">
+                Create
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleJoinRoom}
+                className="w-1/2"
+              >
+                Join
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

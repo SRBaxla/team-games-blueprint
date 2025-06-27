@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { socket } from '../components/socket';
+import { socket } from '../lib/socket';
 
 interface RoomProps {
   room: string;
